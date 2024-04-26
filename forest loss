@@ -1,0 +1,401 @@
+   
+// Took full advantage of examples provided by 
+// Earth Engine (e.g. "Population Explorer").
+// Minimum effort was made to customise/optimise 
+// the functions or change the appeareance. 
+
+// Displays annual tree loss by protected area in chart form
+// Tree loss from Hansen data v1.6
+var loss = ee.Image('UMD/hansen/global_forest_change_2022_v1_10')
+.select('lossyear').clip (studyarea);
+
+
+//mask
+print(loss)
+var lossyear = loss.selfMask();
+
+print(lossyear)
+
+//rename
+var count = lossyear.eq([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22])
+.rename(['2001','2002','2003','2004','2005','2006','2007','2008','2009',
+'2010','2011','2012','2013','2014','2015','2016','2017','2018','2019','2020','2021','2022']);
+
+//area in hectare
+var total = count.multiply(ee.Image.pixelArea()).divide(10000);
+
+// Constants used to visualize the data on the map
+var LOSS_STYLE = { min: 1, max: 22, palette: ['red']};
+
+// Add our base layers to the map: tree loss 
+//Map.addLayer(lossyear, LOSS_STYLE, 'treeloss/overall')
+
+var palette = ["ffffcc", "ffeda0", "fed976", "feb24c", "fd8d3c", 
+"fc4e2a", "e31a1c", "bd0026", "800026"];
+
+var LOSS_STYLEe = {min: 1,max: 22,palette: palette,opacity: 0.5};
+
+var LOSS_VIS_MAX_VALUE = 22;
+var LOSS_VIS_NONLINEARITY = 1;
+
+// Configure our map with a minimal set of controls
+//Map.setControlVisibility(false);
+Map.setControlVisibility({scaleControl: true, zoomControl: true});
+Map.style().set({cursor: 'crosshair'});
+
+// Add our base layers to the map: tree loss 
+Map.addLayer(lossyear, LOSS_STYLEe, 'treeloss/annual')
+//print (total)
+//visualize the study areas
+
+var PA_STYLE = {color: 'blue', fillColor: '00000000'};
+Map.addLayer(studyarea.style(PA_STYLE), {}, 'NER')
+Map.setCenter(90, 24, 6);
+
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/*
+ * The chart panel in the bottom-right
+ */
+
+var protectedAreas=studyarea
+print(protectedAreas,'ner')
+
+// A list of points the user has clicked on, as [lon,lat] tuples
+var selectedPoints = [];
+
+// Returns the list of protected areas the user has selected
+function getSelectedProtectedAreas() {
+  return protectedAreas.filterBounds(ee.Geometry.MultiPoint(selectedPoints));
+}
+/*
+// Makes a bar chart of the given FeatureCollection of protected areas by name
+function makeResultsBarChart(protectedAreas) {
+  var chart = ui.Chart.image.regions({image:total,
+  regions:protectedAreas,reducer:ee.Reducer.sum(),
+  seriesProperty:'Name'})
+  .setChartType('ColumnChart');
+  chart.setOptions({
+    title: 'Tree Cover loss (Deforestation)',
+    vAxis: {title: 'Hectare'},
+    hAxis: {title: 'Year', minValue: 1},
+    width: 1000,
+    height: 300
+  });
+  chart.style().set({stretch: 'both'});
+  return chart;
+}
+*/
+
+
+// Makes a line chart of the given FeatureCollection of protected areas by name
+function makeResultsBarChart(protectedAreas) {
+  var chart = ui.Chart.image.regions({image:total,
+  regions:protectedAreas,reducer:ee.Reducer.sum(),
+  seriesProperty:'Name'})
+  .setChartType('LineChart')
+  chart.setOptions({
+    title: 'Tree Cover loss (Deforestation)',
+    vAxis: {title: 'Hectare'},
+    hAxis: {title: 'Year', minValue: 1},
+    width: 1000,
+    height: 300
+  });
+  chart.style().set({stretch: 'both'});
+  return chart;
+}
+
+var chart = makeResultsBarChart(protectedAreas);
+
+//print (chart)
+
+/*
+// You can add a table of the given FeatureCollection of protected areas by name
+// I disabled for now as they are redundant.
+function makeResultsTable(protectedAreas) {
+  var table = ui.Chart.image.regions({image:total,
+  regions:protectedAreas,reducer:ee.Reducer.sum(),seriesProperty:'Name'});
+  table.setChartType('Table');
+  table.setOptions({allowHtml: true, pageSize: 5});
+  table.style().set({stretch: 'both'});
+  return table;
+}
+*/
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Updates the map overlay for selected protected area for showimg loss
+
+var HIGHLIGHT_STYLE = {color: 'yellow', fillColor: 'green'};
+
+function updateOverlay() {
+  var overlay = getSelectedProtectedAreas().style(HIGHLIGHT_STYLE);
+  Map.layers().set(2, ui.Map.Layer(overlay));
+}
+
+// Updates the chart for selected protected area for showimg loss
+function updateChart() {
+  var chartBuilder = chartTypeToggleButton.value;
+  var chart = chartBuilder(getSelectedProtectedAreas());
+  resultsPanel.clear().add(chart).add(buttonPanel);
+}
+
+// Clears the set of selected points and resets the overlay and results
+function clearResults() {
+  selectedPoints = [];
+  Map.layers().remove(Map.layers().get(3));//2 or 3 means number of layers
+  var instructionsLabel = ui.Label('Annual tree loss in NER of India');
+  resultsPanel.widgets().reset([instructionsLabel]);
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Register a click handler for the map that adds the clicked point to the
+// list and updates the map overlay and chart accordingly
+function handleMapClick(location) {
+  selectedPoints.push([location.lon, location.lat]);
+  updateOverlay();
+  updateChart();
+}
+Map.onClick(handleMapClick);
+
+
+
+function ToggleButton(states, onClick) {
+  var index = 0;
+  var button = ui.Button(states[index].label);
+  button.value = states[index].value;
+  button.onClick(function() {
+    index = ++index % states.length;
+    button.setLabel(states[index].label);
+    button.value = states[index].value;
+    onClick();
+  });
+  return button;
+}
+
+
+var chartTypeToggleButton = ToggleButton(
+    [
+      {
+        label: 'Display results as table',
+        value: makeResultsBarChart,
+      },
+      {
+      //(in case you want the table)
+      //label: 'Display results as chart',
+      //  value: makeResultsTable,
+      }
+    ],
+    updateChart);
+
+
+
+var buttonPanel = ui.Panel(
+    [ui.Button('Clear results', clearResults)],
+    ui.Panel.Layout.Flow('horizontal'), {margin: '0 0 0 auto', width: '600px', height: 'auto'});
+
+var resultsPanel = ui.Panel({style: {position: 'bottom-right'}});
+Map.add(resultsPanel);
+clearResults();
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Below can be made better
+// Create an inspector panel with a horizontal layout
+var inspector = ui.Panel({
+  layout: ui.Panel.Layout.flow('horizontal')
+});
+
+// Add a label to the panel
+inspector.add(ui.Label('Click to select a state of NER',{fontWeight: 'bold', fontSize: '20px'}));
+
+// Add the panel to the default map
+Map.add(inspector);
+
+// Set the default map's cursor to a "crosshair"
+Map.style().set('cursor', 'crosshair');
+
+// Register a callback on the map to be invoked when the map is clicked
+Map.onClick(function(coords) {
+  // Clear the panel and show a loading message
+  inspector.clear();
+  inspector.style().set('shown', true);
+  inspector.add(ui.Label('Loading...', {color: 'gray'}));
+
+//showing the name and year and type etc.
+  var point = ee.Geometry.Point(coords.lon, coords.lat);
+  var PApoint = protectedAreas.filterBounds(point);
+  //select name//from feature>properties
+  var o_name = ee.List(PApoint.aggregate_array("Name")).map(function(d) {return ee.String(d)});
+  //select status//from feature>properties///states or UT//prtocted or sanctuary
+  var status = ee.List(PApoint.aggregate_array("Type")).map(function(d) {return ee.String(d)});
+    //select year//from feature>properties///established year
+  var y_status = ee.List(PApoint.aggregate_array("VALUE")).map(function(d) {return ee.Number(d)});
+     //select importance//from feature>properties///for tiger/elephant/anything else
+  var type = ee.List(PApoint.aggregate_array("DESIG_ENG")).map(function(d) {return ee.String(d)});
+  
+  var listt = ee.List([o_name,type,status,y_status]);
+  //for this study just showing the state name
+  var list=ee.List([o_name])
+  
+  list.evaluate(function(info) {
+    inspector.clear();
+
+    // Add a label with the results from the server//for graph position
+    inspector.add(ui.Label({
+      value: info,
+      style: {position:'top-center'}
+    }));
+
+   // Add a button to hide the Panel/graph
+    inspector.add(ui.Button({
+      label: 'close',
+      onClick: function() {
+        inspector.style().set('shown', false);
+      }
+    }));
+  });
+});
+
+
+//add legend
+var add_legend = function(title, lbl, pal) {
+  var legend = ui.Panel({style: {position: 'bottom-left'}}), entry;
+  legend.add(ui.Label({value: title, style: { fontWeight: 'bold', fontSize: '18px', margin: '0 0 4px 0', padding: '0px' } }));
+  for (var x = 0; x < lbl.length; x++){
+    entry = [ ui.Label({style:{color: pal[x], margin: '0 0 4px 0'}, value: '██'}),
+      ui.Label({ value: labels[x], style: { margin: '0 0 4px 4px' } }) ];
+    legend.add(ui.Panel(entry, ui.Panel.Layout.Flow('horizontal')));
+  } Map.add(legend); };
+
+var palette = ['red','26458d'];
+var labels = ['Tree loss/Deforestation (Hansen v1.6)','NER of India'];
+add_legend('', labels, palette);
+
+
+
+
+
+//create panel/////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Add title.
+var title = ui.Label(
+    'Annual Tree Loss in NER of India', {
+        fontFamily: 'google sans',
+        fontSize: '18px',
+        margin: '4px 8px',});
+
+var instruction = ui.Label("Click 🔳 to select a state of NER", {
+    fontFamily: 'google sans',
+    fontSize: '16px',
+    margin: '4px 8px',});
+
+// Add more legends.
+
+var colorbarOptions1 = {
+    'min': '2001',
+    'max': '2022',
+    'palette': palette};
+
+
+// Creates a color bar thumbnail image for use in legend from the given color
+// palette.
+
+function makeColorBarParams(palette) {
+    return {
+        bbox: [0, 0, 1, 0.1],
+        dimensions: '100x10',
+        format: 'png',
+        min: 0,
+        max: 1,
+        palette: palette, };}
+
+// Create the color bar for the legend.
+var colorBar = ui.Thumbnail({
+    image: ee.Image.pixelLonLat().select(0),
+    params: makeColorBarParams(colorbarOptions1.palette),
+    style: {
+        stretch: 'horizontal',
+        margin: '0px 8px',
+        maxHeight: '24px',
+        position: 'bottom-right',},});
+
+
+// Create a panel with min & max for the legend.
+var legendLabels = ui.Panel({
+    widgets: [
+        ui.Label(colorbarOptions1.min, {
+            margin: '4px 8px',
+            fontFamily: 'google sans'}),
+        ui.Label(
+            (""), {
+                margin: '4px 8px',
+                textAlign: 'center',
+                stretch: 'horizontal' }),
+        ui.Label(colorbarOptions1.max, {
+            margin: '4px 8px',
+            fontFamily: 'google sans' }),],
+
+    layout: ui.Panel.Layout.flow('horizontal')});
+    
+// Create a label and slider.
+var slider = ui.Slider({
+    style: {
+        width: '380px',
+        height: 'auto',
+        padding: '10px',
+        margin: '0px 8px',
+        fontFamily: 'google sans'}});
+
+slider.setValue(0.5); // Set a default value.
+slider.onChange(function(value) {
+    Map.layers().get(0).setOpacity(value);});
+  
+  //set visibility
+var label = ui.Label('Annual tree loss visibility (1=100%)', {
+    fontFamily: 'google sans',
+    margin: '24px 8px',});
+
+//set study area
+var wdpa = ui.Label("NER of India", {
+    fontFamily: 'google sans',
+    fontSize: '10px',
+    margin: '4px 8px',
+    textAlign: 'left',
+    stretch: 'horizontal'
+});
+// citations and links
+var hansen = ui.Label(
+    'Hansen/UMD/Google/USGS/NASA', {
+        fontFamily: 'google sans',
+        margin: '4px 8px',
+        fontSize: '10px',});
+
+var link = ui.Label('View Code in Github', {
+    fontFamily: 'google sans',
+    fontSize: '11px',
+    margin: '4px 8px',
+    textAlign: 'left',
+    stretch: 'horizontal'}, 
+    'https://github.com/nkeikon/earthengine-apps/blob/master/ProtectedAreaLoss.js');
+
+// Create a panel that contains both the slider and the label.
+var panel = ui.Panel({
+    widgets: [title, instruction, label, slider, colorBar, legendLabels],
+    layout: ui.Panel.Layout.flow('vertical'),
+    style: {
+        position: 'bottom-left',
+        width: '400px',
+        padding: '7px',
+        fontFamily: 'google sans'
+    }});
+
+// Add the panel to the map.
+Map.add(panel);
+panel.add(hansen).add(wdpa).add(link);
